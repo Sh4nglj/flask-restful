@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import unittest
-from mock import Mock, patch
+try:
+    from unittest.mock import Mock, patch
+except ImportError:
+    from mock import Mock, patch
 from flask import Flask
 from werkzeug import exceptions
 from werkzeug.wrappers import Request
@@ -949,6 +952,102 @@ class ReqParseTestCase(unittest.TestCase):
             self.assertIn("choices: [1, 2, 3, '...', 6]", str(arg))
         except AttributeError:
             self.assertTrue("choices: [1, 2, 3, '...', 6]" in str(arg))
+
+    @patch('flask_restful.abort')
+    def test_min_length_validation(self, abort):
+        app = Flask(__name__)
+        with app.app_context():
+            parser = RequestParser()
+            parser.add_argument('foo', type=str, min_length=5)
+            req = Mock(['values'])
+            req.values = MultiDict([('foo', 'bar')])
+            parser.parse_args(req)
+            expected = {'foo': 'bar is too short. Must be at least 5 characters long'}
+            abort.assert_called_with(400, message=expected)
+
+    @patch('flask_restful.abort')
+    def test_max_length_validation(self, abort):
+        app = Flask(__name__)
+        with app.app_context():
+            parser = RequestParser()
+            parser.add_argument('foo', type=str, max_length=5)
+            req = Mock(['values'])
+            req.values = MultiDict([('foo', 'barbaz')])
+            parser.parse_args(req)
+            expected = {'foo': 'barbaz is too long. Must be at most 5 characters long'}
+            abort.assert_called_with(400, message=expected)
+
+    def test_min_max_length_validation(self):
+        app = Flask(__name__)
+        with app.app_context():
+            parser = RequestParser()
+            parser.add_argument('foo', type=str, min_length=3, max_length=5)
+            req = Mock(['values'])
+            req.values = MultiDict([('foo', 'bar')])
+            args = parser.parse_args(req)
+            self.assertEqual(args['foo'], 'bar')
+            req.values = MultiDict([('foo', 'barba')])
+            args = parser.parse_args(req)
+            self.assertEqual(args['foo'], 'barba')
+
+    @patch('flask_restful.abort')
+    def test_min_value_validation(self, abort):
+        app = Flask(__name__)
+        with app.app_context():
+            parser = RequestParser()
+            parser.add_argument('foo', type=int, min_value=5)
+            req = Mock(['values'])
+            req.values = MultiDict([('foo', '3')])
+            parser.parse_args(req)
+            expected = {'foo': '3 is too small. Must be at least 5'}
+            abort.assert_called_with(400, message=expected)
+
+    @patch('flask_restful.abort')
+    def test_max_value_validation(self, abort):
+        app = Flask(__name__)
+        with app.app_context():
+            parser = RequestParser()
+            parser.add_argument('foo', type=int, max_value=5)
+            req = Mock(['values'])
+            req.values = MultiDict([('foo', '7')])
+            parser.parse_args(req)
+            expected = {'foo': '7 is too large. Must be at most 5'}
+            abort.assert_called_with(400, message=expected)
+
+    def test_min_max_value_validation(self):
+        app = Flask(__name__)
+        with app.app_context():
+            parser = RequestParser()
+            parser.add_argument('foo', type=int, min_value=3, max_value=5)
+            req = Mock(['values'])
+            req.values = MultiDict([('foo', '3')])
+            args = parser.parse_args(req)
+            self.assertEqual(args['foo'], 3)
+            req.values = MultiDict([('foo', '5')])
+            args = parser.parse_args(req)
+            self.assertEqual(args['foo'], 5)
+
+    @patch('flask_restful.abort')
+    def test_regex_validation(self, abort):
+        app = Flask(__name__)
+        with app.app_context():
+            parser = RequestParser()
+            parser.add_argument('foo', type=str, regex=r'^[a-z]+$')
+            req = Mock(['values'])
+            req.values = MultiDict([('foo', 'Bar123')])
+            parser.parse_args(req)
+            expected = {'foo': 'Bar123 does not match the required format'}
+            abort.assert_called_with(400, message=expected)
+
+    def test_regex_validation_success(self):
+        app = Flask(__name__)
+        with app.app_context():
+            parser = RequestParser()
+            parser.add_argument('foo', type=str, regex=r'^[a-z]+$')
+            req = Mock(['values'])
+            req.values = MultiDict([('foo', 'bar')])
+            args = parser.parse_args(req)
+            self.assertEqual(args['foo'], 'bar')
 
 
 if __name__ == '__main__':
