@@ -45,3 +45,9 @@ docs/_build
 #Eclipse/Aptana
 .project
 .pydevproject
+
+# markdoc
+markdoc/*
+
+# DS.store
+.DS_Store

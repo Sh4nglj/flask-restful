@@ -10,3 +10,4 @@ recursive-exclude examples *.pyc
 recursive-exclude examples *.pyo
 prune docs/_build
 prune docs/_themes
+prune markdoc
