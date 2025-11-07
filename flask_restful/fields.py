@@ -12,7 +12,7 @@ from flask import url_for, request
 
 __all__ = ["String", "FormattedString", "Url", "DateTime", "Float",
            "Integer", "Arbitrary", "Nested", "List", "Raw", "Boolean",
-           "Fixed", "Price"]
+           "Fixed", "Price", "Relationship"]
 
 
 class MarshallingException(Exception):
@@ -83,11 +83,13 @@ class Raw(object):
     :param attribute: If the public facing value differs from the internal
         value, use this to retrieve a different attribute from the response
         than the publicly named value.
+    :param lazy: If True, the field will only be serialized when explicitly requested
     """
 
-    def __init__(self, default=None, attribute=None):
+    def __init__(self, default=None, attribute=None, lazy=False):
         self.attribute = attribute
         self.default = default
+        self.lazy = lazy
 
     def format(self, value):
         """Formats a field's value. No-op by default - field classes that
@@ -149,6 +151,42 @@ class Nested(Raw):
             elif self.default is not None:
                 return self.default
 
+        return marshal(value, self.nested)
+
+
+class Relationship(Nested):
+    """Allows you to handle relationships between objects (one-to-one, one-to-many, many-to-many).
+    This is a special case of Nested field that handles circular references automatically.
+
+    :param dict nested: The dictionary to nest
+    :param bool allow_null: Whether to return None instead of a dictionary
+        with null keys, if a nested dictionary has all-null keys
+    :param str relationship_type: Type of relationship ("one-to-one", "one-to-many", "many-to-many")
+    :param kwargs: If ``default`` keyword argument is present, a nested
+        dictionary will be marshaled as its value if nested dictionary is
+        all-null keys (e.g. lets you return an empty JSON object instead of
+        null)
+    """
+
+    def __init__(self, nested, allow_null=False, relationship_type="one-to-one", **kwargs):
+        self.relationship_type = relationship_type
+        super(Relationship, self).__init__(nested, allow_null=allow_null, **kwargs)
+
+    def output(self, key, obj):
+        value = get_value(key if self.attribute is None else self.attribute, obj)
+        if value is None:
+            if self.allow_null:
+                return None
+            elif self.default is not None:
+                return self.default
+
+        # Handle one-to-many relationships
+        if self.relationship_type in ["one-to-many", "many-to-many"]:
+            if not is_indexable_but_not_string(value):
+                return []
+            return [marshal(item, self.nested) for item in value]
+        
+        # Handle one-to-one relationships
         return marshal(value, self.nested)
 
 

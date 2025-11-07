@@ -619,7 +619,7 @@ class Resource(MethodView):
         return resp
 
 
-def marshal(data, fields, envelope=None):
+def marshal(data, fields, envelope=None, depth=0, only=None, exclude=None, _visited=None):
     """Takes raw data (in the form of a dict, list, object) and a dict of
     fields to output and filters the data based on those fields.
 
@@ -628,6 +628,10 @@ def marshal(data, fields, envelope=None):
                    response output
     :param envelope: optional key that will be used to envelop the serialized
                      response
+    :param depth: maximum depth for nested serialization (0 means unlimited)
+    :param only: list of fields to include in the serialization
+    :param exclude: list of fields to exclude from the serialization
+    :param _visited: internal parameter to track visited objects for circular reference detection
 
 
     >>> from flask_restful import fields, marshal
@@ -647,14 +651,55 @@ def marshal(data, fields, envelope=None):
             return cls()
         return cls
 
-    if isinstance(data, (list, tuple)):
-        return (OrderedDict([(envelope, [marshal(d, fields) for d in data])])
-                if envelope else [marshal(d, fields) for d in data])
+    # Handle circular references
+    if _visited is None:
+        _visited = set()
+    
+    data_id = id(data)
+    if data_id in _visited:
+        # Return a reference identifier instead of full object to avoid infinite recursion
+        return {"_ref": data_id}
+    
+    _visited.add(data_id)
+    
+    try:
+        if isinstance(data, (list, tuple)):
+            result = [marshal(d, fields, depth=depth, only=only, exclude=exclude, _visited=_visited.copy()) for d in data]
+            return OrderedDict([(envelope, result)]) if envelope else result
 
-    items = ((k, marshal(data, v) if isinstance(v, dict)
-              else make(v).output(k, data))
-             for k, v in fields.items())
-    return OrderedDict([(envelope, OrderedDict(items))]) if envelope else OrderedDict(items)
+        # Filter fields based on only and exclude parameters
+        filtered_fields = fields.copy()
+        if only:
+            filtered_fields = {k: v for k, v in filtered_fields.items() if k in only}
+        if exclude:
+            filtered_fields = {k: v for k, v in filtered_fields.items() if k not in exclude}
+
+        items = []
+        for k, v in filtered_fields.items():
+            if isinstance(v, dict):
+                # Nested fields - check depth
+                if depth > 0:
+                    # Continue serializing with decreased depth
+                    nested_result = marshal(data, v, depth=depth-1, only=only, exclude=exclude, _visited=_visited.copy())
+                    items.append((k, nested_result))
+                elif depth == 0:
+                    # Unlimited depth - serialize fully
+                    nested_result = marshal(data, v, depth=0, only=only, exclude=exclude, _visited=_visited.copy())
+                    items.append((k, nested_result))
+                else:
+                    # Reached maximum depth - return reference
+                    items.append((k, {"_ref": data_id}))
+            else:
+                field_instance = make(v)
+                # Check if field is lazy and should not be serialized
+                if hasattr(field_instance, 'lazy') and field_instance.lazy:
+                    continue
+                items.append((k, field_instance.output(k, data)))
+        
+        result = OrderedDict(items)
+        return OrderedDict([(envelope, result)]) if envelope else result
+    finally:
+        _visited.remove(data_id)
 
 
 class marshal_with(object):
