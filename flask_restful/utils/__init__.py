@@ -9,6 +9,12 @@ from werkzeug.http import HTTP_STATUS_CODES
 
 PY3 = sys.version_info > (3,)
 
+# Versioning utilities
+from .versioning import VersionCompatibilityTest, generate_compatibility_report, generate_compatibility_report_json
+
+# Migration utilities
+from .migration import MigrationDocGenerator, generate_migration_diff
+
 
 def http_status_message(code):
     """Maps an HTTP status code to the textual status"""
