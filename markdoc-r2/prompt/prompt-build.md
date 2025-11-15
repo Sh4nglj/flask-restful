@@ -2,8 +2,9 @@
 
 ### **执行约束（必须遵守）**
 
-- **所有 worktree 路径**：`$MAIN_PROJECT_PATH/../repo-wt/trae-task-N`
-- 每个worktree的description和content仅在仅在所属的` WT_ROOT/trae-r2-${N}`内
+- **所有 worktree 路径**：`$MAIN_PROJECT_PATH/../repo-wt/trae-r2-N`
+- 每个worktree的description和content仅存在于所属的 `WT_ROOT/trae-r2-${N}/markdoc-r2/task_data/` 目录内
+- **文件已存在**：worktree建立时，`markdoc-r2/task_data/content.json` 和 `markdoc-r2/task_data/description.md` 已存在，只需填写内容
 - repoDscb 使用 **AI 摘要**，≤4 句
 - `content.json`内使用`\n`替换换行，字段内容不使用json数组
 
@@ -56,8 +57,9 @@ git worktree add "$WT_PATH" "trae/r2/${N}"
 cd "$WT_PATH"
 ```
 
-#### **填写 `content.json`，用`\n`换行（写入主项目对应目录）**
+#### **覆盖写入 worktree 内的 markdoc-r2/task_data/content.json**
 ```bash
+cat > "markdoc-r2/task_data/content.json" << 'EOF'
 {
   "prompt": "[将完整任务 Prompt 写入此处]",
   "msnDscb": "[一句话任务总结]",
@@ -68,9 +70,9 @@ cd "$WT_PATH"
 EOF
 ```
 
-#### **填写 `description.md`（写入 worktree 内，隔离存储）**
+#### **覆盖写入 worktree 内的 markdoc-r2/task_data/description.md，隔离存储**
 ```bash
-cat > "description.md" << 'EOF'
+cat > "markdoc-r2/task_data/description.md" << 'EOF'
 # 任务 Prompt
 [完整粘贴 content.json 中的 prompt 字段内容，支持换行]
 
@@ -93,18 +95,6 @@ EOF
 
 ```bash
 cd "$MAIN_PROJECT_PATH"
-```
-
----
-
-### **步骤 4：最终输出摘要**
-
-```bash
-echo "=== 10 个 worktree 已生成（统一存于 repo-wt/）==="
-git worktree list | grep trae-task
-echo ""
-echo "worktree 路径: $WT_ROOT/trae-task-{1..10}"
-echo "任务数据: $MAIN_PROJECT_PATH/../task_data/task-{1..10}/content.json"
 ```
 
 **请现在开始执行，勿输出中间思考，直接运行命令并生成文件。**
