@@ -1,4 +1,11 @@
-# Cursor 单条 Prompt：生成 10 个隔离测试任务（含 worktree + JSON + MD）
+# prompt-build
+
+### **执行约束（必须遵守）**
+
+- **所有 worktree 路径**：`$MAIN_PROJECT_PATH/../repo-wt/trae-task-N`
+- 每个worktree的description和content仅在仅在所属的` WT_ROOT/trae-r2-${N}`内
+- repoDscb 使用 **AI 摘要**，≤4 句
+- `content.json`内使用`\n`替换换行，字段内容不使用json数组
 
 严格按以下顺序执行，**不得跳步、合并或遗漏**，确保每个任务的所有文件仅存在于其专属 Git worktree 中：
 
@@ -99,12 +106,5 @@ echo ""
 echo "worktree 路径: $WT_ROOT/trae-task-{1..10}"
 echo "任务数据: $MAIN_PROJECT_PATH/../task_data/task-{1..10}/content.json"
 ```
-
----
-
-### **执行约束（必须遵守）**
-
-- 每个worktree的description和content仅在仅在所属的` WT_ROOT/trae-r2-${N}`内
-- repoDscb 使用 **AI 摘要**，≤4 句
 
 **请现在开始执行，勿输出中间思考，直接运行命令并生成文件。**
