@@ -8,7 +8,7 @@
 - **测试验证**：根据需要运行单元测试或构建集成测试
 
 ### 2. 对照任务要求
-参考 [scoring-criteria.md](../docs/scoring-criteria.md)，评估代码对 `../task_data/task-{N}/content.json` 中 `"prompt"` 字段任务的完成情况。
+参考 [scoring-criteria.md](../docs/scoring-criteria.md)，评估代码对` /task_data/content.json` 中 `prompt` 字段任务的完成情况。
 
 ### 3. 分析执行记录
 - **工具调用统计**：阅读 `record.md`，统计各类工具的使用次数和成功率
