@@ -10,6 +10,8 @@
 
 总结为3-5条原因，填写 ` /task_data/content.json` 的 `failure`字段。使用 `\n`换行。
 
+不更改content.json内其余的部分。
+
 ### 3. new prompt
 
-生成一组新的prompt，填入`/task_data/description.md`的new prompt条目。 
+生成一组新的prompt，修复现有问题并继续完成需求，填入`/task_data/description.md`的new prompt条目。 
