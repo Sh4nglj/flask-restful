@@ -951,5 +951,122 @@ class ReqParseTestCase(unittest.TestCase):
             self.assertTrue("choices: [1, 2, 3, '...', 6]" in str(arg))
 
 
+    def test_nested_params(self):
+        """Test nested parameters (e.g., 'user.name')"""
+        app = Flask(__name__)
+
+        parser = RequestParser()
+        parser.add_argument('user.name', location='json', type=str)
+        parser.add_argument('user.age', location='json', type=int)
+
+        with app.test_request_context('/test', method="post",
+                                      data=json.dumps({'user': {'name': 'test', 'age': 20}}),
+                                      content_type='application/json'):
+            args = parser.parse_args()
+            self.assertEqual(args['user.name'], 'test')
+            self.assertEqual(args['user.age'], 20)
+
+    def test_choices_generator(self):
+        """Test choices with generator"""
+        app = Flask(__name__)
+
+        def generate_choices():
+            yield 'option1'
+            yield 'option2'
+            yield 'option3'
+
+        parser = RequestParser()
+        parser.add_argument('choice', location='json', choices=generate_choices())
+
+        with app.test_request_context('/test', method="post",
+                                      data=json.dumps({'choice': 'option2'}),
+                                      content_type='application/json'):
+            args = parser.parse_args()
+            self.assertEqual(args['choice'], 'option2')
+
+    def test_trim_non_string(self):
+        """Test trim=True with non-string values"""
+        app = Flask(__name__)
+
+        parser = RequestParser()
+        parser.add_argument('number', location='json', type=int, trim=True)
+        parser.add_argument('boolean', location='json', type=bool, trim=True)
+
+        with app.test_request_context('/test', method="post",
+                                      data=json.dumps({'number': 42, 'boolean': True}),
+                                      content_type='application/json'):
+            args = parser.parse_args()
+            self.assertEqual(args['number'], 42)
+            self.assertEqual(args['boolean'], True)
+
+    def test_nullable_false_with_default_none(self):
+        """Test nullable=False with default=None"""
+        app = Flask(__name__)
+
+        parser = RequestParser()
+        parser.add_argument('param', location='json', type=str, nullable=False, default=None)
+
+        with app.test_request_context('/test', method="post",
+                                      data=json.dumps({}),
+                                      content_type='application/json'):
+            self.assertRaises(exceptions.BadRequest, parser.parse_args)
+
+    def test_append_action_multiple_locations(self):
+        """Test action='append' with multiple locations"""
+        app = Flask(__name__)
+
+        parser = RequestParser()
+        parser.add_argument('param', location=('json', 'args'), action='append')
+
+        with app.test_request_context('/test?param=1', method="post",
+                                      data=json.dumps({'param': '2'}),
+                                      content_type='application/json'):
+            args = parser.parse_args()
+            self.assertEqual(args['param'], ['1', '2'])
+
+    def test_better_error_messages(self):
+        """Test enhanced error messages"""
+        app = Flask(__name__)
+
+        parser = RequestParser()
+        parser.add_argument('required_param', location='json', required=True)
+
+        with app.test_request_context('/test', method="post",
+                                      data=json.dumps({}),
+                                      content_type='application/json'):
+            try:
+                args = parser.parse_args()
+                self.fail("Expected BadRequest exception")
+            except exceptions.BadRequest as e:
+                # Check if error message includes parameter name and location
+                self.assertIn('required_param', str(e))
+                self.assertIn('JSON body', str(e))
+
+    def test_file_storage_none(self):
+        """Test FileStorage type with None value"""
+        app = Flask(__name__)
+
+        parser = RequestParser()
+        parser.add_argument('file', location='files', type=FileStorage, nullable=True)
+
+        # Mock request with no files
+        with app.test_request_context('/test', method="post"):
+            # This should not raise an error
+            args = parser.parse_args()
+            self.assertIsNone(args['file'])
+
+    def test_required_with_empty_multidict(self):
+        """Test required parameter with empty MultiDict"""
+        app = Flask(__name__)
+
+        parser = RequestParser()
+        parser.add_argument('required_param', location='json', required=True)
+
+        with app.test_request_context('/test', method="post",
+                                      data=json.dumps({}),
+                                      content_type='application/json'):
+            self.assertRaises(exceptions.BadRequest, parser.parse_args)
+
+
 if __name__ == '__main__':
     unittest.main()

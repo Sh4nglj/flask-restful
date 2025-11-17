@@ -83,7 +83,8 @@ class Argument(object):
         self.ignore = ignore
         self.location = location
         self.type = type
-        self.choices = choices
+        # Convert choices to list to handle generators/iterators
+        self.choices = list(choices)
         self.action = action
         self.help = help
         self.case_sensitive = case_sensitive
@@ -113,21 +114,42 @@ class Argument(object):
         """Pulls values off the request in the provided location
         :param request: The flask request object to parse arguments from
         """
-        if isinstance(self.location, six.string_types):
-            value = getattr(request, self.location, MultiDict())
+        def get_value(location):
+            if location == 'json':
+                # Use safe JSON access to avoid 415 errors
+                json_data = request.get_json(silent=True)
+                return json_data
+            value = getattr(request, location, None)
             if callable(value):
                 value = value()
-            if value is not None:
-                return value
+            return value
+            
+        # If location is a string, return the raw value
+        if isinstance(self.location, six.string_types):
+            return get_value(self.location)
         else:
-            values = MultiDict()
-            for l in self.location:
-                value = getattr(request, l, None)
-                if callable(value):
-                    value = value()
-                if value is not None:
-                    values.update(value)
-            return values
+            # If location is a tuple or list, merge all values into a MultiDict
+            merged = MultiDict()
+            for loc in self.location:
+                value = get_value(loc)
+                if value is None:
+                    continue
+                
+                # Handle different types of values
+                if isinstance(value, MultiDict):
+                    # Update with entire MultiDict
+                    merged.update(value)
+                elif isinstance(value, dict):
+                    # Convert dict to MultiDict and update
+                    merged.update(MultiDict(value))
+                elif isinstance(value, (list, tuple)):
+                    # For list/tuple values, add each item with the field name
+                    for item in value:
+                        merged.add(self.name, item)
+                else:
+                    # For single values, add to MultiDict with field name
+                    merged.add(self.name, value)
+            return merged
 
         return MultiDict()
 
@@ -191,23 +213,84 @@ class Argument(object):
 
         for operator in self.operators:
             name = self.name + operator.replace("=", "", 1)
-            if name in source:
-                # Account for MultiDict and regular dict
-                if hasattr(source, "getlist"):
+            
+            # Handle parameter extraction
+            values = None
+            
+            # First check if it's a nested parameter (e.g., 'user.name')
+            if '.' in name:
+                path = name.split('.')
+                current = source
+                found = True
+                
+                for component in path:
+                    if current is None:
+                        found = False
+                        break
+                    
+                    if isinstance(current, dict):
+                        if component in current:
+                            current = current[component]
+                        else:
+                            found = False
+                            break
+                    elif hasattr(current, 'get'):
+                        current = current.get(component)
+                        if current is None:
+                            found = False
+                            break
+                    elif isinstance(current, MutableSequence):
+                        # Handle list of dicts (for future extension)
+                        found = False
+                        break
+                    else:
+                        found = False
+                        break
+                
+                if found:
+                    values = [current]
+            
+            # If not nested or nested lookup failed, try regular parameter extraction
+            if values is None:
+                # Handle all types of sources consistently
+                if isinstance(source, MultiDict):
+                    # For MultiDict, use getlist to get all values
                     values = source.getlist(name)
-                else:
-                    values = source.get(name)
-                    if not (isinstance(values, MutableSequence) and self.action == 'append'):
-                        values = [values]
+                elif hasattr(source, 'getlist'):
+                    # Handle any object that has a getlist method
+                    values = source.getlist(name)
+                elif isinstance(source, dict):
+                    # For regular dict, get the value if exists
+                    if name in source:
+                        values = [source[name]]
+                elif hasattr(source, '__getitem__') or hasattr(source, 'get'):
+                    # Handle objects that support __getitem__ or get method
+                    try:
+                        if hasattr(source, 'get'):
+                            value = source.get(name)
+                        else:
+                            value = source[name]
+                        if value is not None:
+                            # If value is a list and action is append, keep it as list
+                            if isinstance(value, MutableSequence) and self.action == 'append':
+                                values = value
+                            else:
+                                values = [value]
+                    except (KeyError, TypeError):
+                        # If key not found or invalid type, values remains None
+                        pass
 
                 for value in values:
-                    if hasattr(value, "strip") and self.trim:
+                    # Only trim if value is a string and trim is True
+                    if self.trim and hasattr(value, "strip"):
                         value = value.strip()
-                    if hasattr(value, "lower") and not self.case_sensitive:
+                    # Only convert to lowercase if value is a string and case_sensitive is False
+                    if not self.case_sensitive and hasattr(value, "lower"):
                         value = value.lower()
 
-                        if hasattr(self.choices, "__iter__"):
-                            self.choices = [choice.lower()
+                        # Convert choices to lowercase if not already done
+                        if self.choices:
+                            self.choices = [choice.lower() if hasattr(choice, 'lower') else choice
                                             for choice in self.choices]
 
                     try:
@@ -231,28 +314,57 @@ class Argument(object):
                     results.append(value)
 
         if not results and self.required:
-            if isinstance(self.location, six.string_types):
-                error_msg = u"Missing required parameter in {0}".format(
-                    _friendly_location.get(self.location, self.location)
-                )
+            # Check if we have any value at all from the source
+            found_any = False
+            source = self.source(request)
+            if hasattr(source, 'keys') and source.keys():
+                found_any = True
+            elif hasattr(source, '__iter__') and any(source):
+                found_any = True
+            
+            if found_any:
+                error_msg = u"Parameter '{0}' is required but was not found in the request data".format(self.name)
             else:
-                friendly_locations = [_friendly_location.get(loc, loc)
-                                      for loc in self.location]
-                error_msg = u"Missing required parameter in {0}".format(
-                    ' or '.join(friendly_locations)
-                )
+                # Maintain backward compatibility for error messages
+                if isinstance(self.location, six.string_types):
+                    error_msg = u"Missing required parameter in {0}".format(
+                        _friendly_location.get(self.location, self.location)
+                    )
+                else:
+                    friendly_locations = [_friendly_location.get(loc, loc)
+                                          for loc in self.location]
+                    error_msg = u"Missing required parameter in {0}".format(
+                        ' or '.join(friendly_locations)
+                    )
+            
             if current_app.config.get("BUNDLE_ERRORS", False) or bundle_errors:
                 return self.handle_validation_error(ValueError(error_msg), bundle_errors)
             self.handle_validation_error(ValueError(error_msg), bundle_errors)
 
         if not results:
+            # Check if default is None and nullable is False
+            if not self.nullable and self.default is None:
+                error_msg = u"Parameter '{0}' cannot be null".format(self.name)
+                if current_app.config.get("BUNDLE_ERRORS", False) or bundle_errors:
+                    return self.handle_validation_error(ValueError(error_msg), bundle_errors)
+                self.handle_validation_error(ValueError(error_msg), bundle_errors)
             if callable(self.default):
                 return self.default(), _not_found
             else:
                 return self.default, _not_found
 
         if self.action == 'append':
-            return results, _found
+            # Return unique values to avoid duplicate appending when location has multiple sources
+            # Convert to set and back to list to remove duplicates while preserving order (for Python 3.7+)
+            seen = set()
+            unique_results = []
+            for result in results:
+                # For non-hashable objects, use str representation for uniqueness check
+                result_key = str(result) if not isinstance(result, (int, float, str, bool)) else result
+                if result_key not in seen:
+                    seen.add(result_key)
+                    unique_results.append(result)
+            return unique_results, _found
 
         if self.action == 'store' or len(results) == 1:
             return results[0], _found
