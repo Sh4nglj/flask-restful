@@ -8,65 +8,52 @@
 - **测试验证**：根据需要运行单元测试或构建集成测试
 
 ### 2. 对照任务要求
-参考 [scoring-criteria.md](../docs/scoring-criteria.md)，评估代码对` /task_data/content.json` 中 `prompt` 字段任务的完成情况。
+参考 `scoring-criteria.md`，评估代码对 `/task_data/content.json` 中 `prompt` 字段任务的完成情况。
 
 ### 3. 分析执行记录
-- **工具调用统计**：阅读 `record.md`，统计各类工具的使用次数和成功率
-  - 搜索 `toolName` 关键字统计工具调用
-  - 搜索 `status: success` 统计成功次数
-  - 计算成功率并列出具体数据
+- **工具调用统计**：阅读 `record-*.md`，统计各类工具的使用次数和成功率  
+  - 搜索 `toolName` 关键字统计工具调用  
+  - 搜索 `status: success` 统计成功次数  
+  - 计算成功率并列出具体数据  
 - **Model Breaking 分析**：如触发 breaking，定位具体位置并分析原因
 
-## 输出格式
+## 评分字段与输出格式（合并自 evaluation-template.md）
 
-严格按照 [evaluation-template.md](../docs/evaluation-template.md) 的格式输出评估结果。
+### 需填写的字段（写入 `content.json`，每项≤150字）
+
+需要按如下键写入纯文本内容：
+
+- `good`：3 条现有代码的优点  
+- `modelDid`：模型实现的功能
+- `交付完整性`  
+- `工具调用`  
+- `错误修复`  
+- `上下文理解`  
+- `用户体验`
+
+### 文本格式要求
+
+- 使用**纯文本**，不要使用任何 markdown 语法（如 `**`、`#`、反引号等）。  
+- **换行统一使用 `\n`** 表示，而不是真实换行。  
+- 内部字段的内容不使用 JSON 数组结构，如果原本是列表，用 `\n` 连接为单个字符串。  
+- 参考模版（以“交付完整性”为例）：
+
+已实现需求：\n1. 功能点A完全实现\n2. 功能点B符合要求\n\n未完整实现或存在严重问题：\n1. 缺少单元测试\n2. 数据库脚本不匹配\n - name.java和name.sql字段冲突 \n3. 编译失败 \n - name.java 存在报错 \n评分理由：根据“交付物具备可行性，但未达成主要需求”，给予3分。
 
 ## 评估原则
-- **客观公正**：严格依据评分标准，不主观臆断
-- **有理有据**：每个评分点必须有具体证据支撑
-- **评分一致**：确保分数与描述内容相符，避免前后矛盾
+- **客观公正**：严格依据评分标准，在评分语句中引用。  
+- **有理有据**：每个评分点必须有具体证据支撑，指出文件或函数名称。  
+- **评分一致**：描述给出的理由必须与打分高低匹配，避免前后矛盾。
 
-## Git 操作流程
+## 调整顺序
+将 `/task_data/content.json` 中字段顺序调整为：
 
-评估完成后，将代码更改推送到分支（不更新 main）：
+sessionID, prompt, originalRepo, repoDscb, githubPR, msnDscb, steps, modelDid, failure, good, 交付完整性, 工具调用, 错误修复, 上下文理解, 用户体验, traeID, usrID
 
-### 1. 提交代码更改
-```bash
-git add <修改的代码文件>
-git commit -m "feat: 任务描述
-```
+同时需满足：
 
-### 2. 推送分支
-```bash
-git push origin <分支名>
-```
+- 所有文本字段中的换行使用 `\n` 表示  
+- 字段内容不为 JSON 数组，将数组统一转换为由 `\n` 分隔的单个字符串
+- 如存在错误，修复
+- 不得缺失字段，如果缺失，请指出
 
-**注意事项**：
-- 不要提交评估文件（markdoc 目录下的文件通常不在 git 跟踪中）
-- 不要合并到 main 分支
-- 只推送当前任务分支
-
-## 创建 Pull Request
-
-评估完成并推送分支后，创建 Pull Request：
-
-### 1. 确保 GitHub CLI 已登录
-```bash
-gh auth status
-# 如未登录，运行：
-gh auth login
-```
-
-### 2. 创建 PR
-使用 `content.json` 中的信息创建 PR：
-- **title**：使用 `sessionID` 字段的值
-- **body**：使用 `prompt` 字段的值（使用正常换行）
-- **base**：main 分支（自己的仓库）
-- **head**：当前任务分支
-
-```bash
-gh pr create --base main --head <分支名> --title "<sessionID>" --body "<prompt内容>"
-```
-
-### 3. 更新 content.json
-创建 PR 后，将 PR 链接填写到 `content.json` 的 `githubPR` 字段中。
