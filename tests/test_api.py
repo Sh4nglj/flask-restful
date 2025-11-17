@@ -1,7 +1,7 @@
 import unittest
 import json
 from flask import Flask, Blueprint, redirect, views, abort as flask_abort
-from flask.signals import got_request_exception, signals_available
+from flask.signals import got_request_exception
 try:
     from mock import Mock
 except:
@@ -16,10 +16,22 @@ import flask_restful
 import flask_restful.fields
 from flask_restful import OrderedDict
 from json import dumps, loads, JSONEncoder
-from nose.tools import assert_equal  # you need it for tests in form of continuations
+try:
+    # nose is unmaintained and not compatible with Python 3.12 (uses deprecated imp)
+    from nose.tools import assert_equal  # pragma: no cover
+except ImportError:  # pragma: no cover
+    def assert_equal(a, b):
+        assert a == b
 import six
 from types import SimpleNamespace
 from unittest.mock import patch
+
+try:
+    import blinker  # noqa: F401
+    signals_available = True
+except Exception:  # pragma: no cover
+    # Match old Flask behavior: when blinker is missing, signals are not available
+    signals_available = False
 
 _FLASK_RESTFUL_SYS_EXC_INFO = 'flask_restful.sys.exc_info'
 _PROPAGATE_EXCEPTIONS = 'PROPAGATE_EXCEPTIONS'
@@ -33,16 +45,17 @@ def setup_propagate_exceptions(propagate_exceptions):
     return SimpleNamespace(app=app, api=api)
 
 
-def check_unpack(expected, value):
-    assert_equal(expected, value)
-
-
 def test_unpack():
-    yield check_unpack, ("hey", 200, {}), unpack("hey")
-    yield check_unpack, (("hey",), 200, {}), unpack(("hey",))
-    yield check_unpack, ("hey", 201, {}), unpack(("hey", 201))
-    yield check_unpack, ("hey", 201, "foo"), unpack(("hey", 201, "foo"))
-    yield check_unpack, (["hey", 201], 200, {}), unpack(["hey", 201])
+    """Verify that unpack returns (data, code, headers) for various inputs."""
+    cases = [
+        (("hey", 200, {}), unpack("hey")),
+        ((("hey",), 200, {}), unpack(("hey",))),
+        (("hey", 201, {}), unpack(("hey", 201))),
+        (("hey", 201, "foo"), unpack(("hey", 201, "foo"))),
+        ((["hey", 201], 200, {}), unpack(["hey", 201])),
+    ]
+    for expected, value in cases:
+        assert_equal(expected, value)
 
 
 # Add a dummy Resource to verify that the app is properly set.

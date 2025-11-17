@@ -8,8 +8,13 @@ from flask_restful.utils import OrderedDict
 from flask_restful import fields
 from datetime import datetime, timedelta, tzinfo
 from flask import Flask, Blueprint
-#noinspection PyUnresolvedReferences
-from nose.tools import assert_equals  # you need it for tests in form of continuations
+
+try:
+    # nose is unmaintained and may be incompatible with modern Python versions
+    from nose.tools import assert_equals  # pragma: no cover
+except ImportError:  # pragma: no cover
+    def assert_equals(a, b):
+        assert a == b
 
 
 class Foo(object):
@@ -33,7 +38,7 @@ def test_float():
         (3, 3.0),
     ]
     for value, expected in values:
-        yield check_field, expected, fields.Float(), value
+        check_field(expected, fields.Float(), value)
 
 
 def test_boolean():
@@ -45,7 +50,7 @@ def test_boolean():
         ("0", True),      # Will this be a problem?
     ]
     for value, expected in values:
-        yield check_field, expected, fields.Boolean(), value
+        check_field(expected, fields.Boolean(), value)
 
 
 def test_rfc822_datetime_formatters():
@@ -59,7 +64,7 @@ def test_rfc822_datetime_formatters():
          "Sat, 01 Jan 2011 22:59:59 -0000")
     ]
     for date_obj, expected in dates:
-        yield assert_equals, fields._rfc822(date_obj), expected
+        assert_equals(fields._rfc822(date_obj), expected)
 
 
 def test_iso8601_datetime_formatters():
@@ -77,7 +82,7 @@ def test_iso8601_datetime_formatters():
          "2011-01-01T23:59:59+01:00")
     ]
     for date_obj, expected in dates:
-        yield assert_equals, fields._iso8601(date_obj), expected
+        assert_equals(fields._iso8601(date_obj), expected)
 
 
 class FieldsTestCase(unittest.TestCase):

@@ -98,7 +98,27 @@ class AcceptTestCase(unittest.TestCase):
 
 
     def test_accept_no_default_custom_repr_match(self):
+        class Foo(flask_restful.Resource):
+            def get(self):
+                return {'foo': 'bar'}
 
+        app = Flask(__name__)
+        api = flask_restful.Api(app, default_mediatype=None)
+
+        @api.representation('text/plain')
+        def text_rep(data, status_code, headers=None):
+            resp = app.make_response((str(data), status_code, headers))
+            return resp
+
+        api.add_resource(Foo, '/')
+
+        with app.test_client() as client:
+            res = client.get('/', headers=[('Accept', 'text/plain')])
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.content_type, 'text/plain')
+
+
+    def test_accept_empty_repr(self):
         class Foo(flask_restful.Resource):
             def get(self):
                 return "data"

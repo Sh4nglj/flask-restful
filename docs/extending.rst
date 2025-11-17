@@ -50,12 +50,54 @@ keyword arguments of :py:func:`json.dumps`. ::
                         'indent': 2,
                         'cls': MyCustomEncoder}
 
+XML Representation
+~~~~~~~~~~~~~~~~~~
+
+Flask-RESTful also includes built-in support for XML representation. To enable
+XML support, you need to import it and add it to your API representations::
+
+    from flask_restful import Api
+    from flask_restful.representations.xml import output_xml
+
+    app = Flask(__name__)
+    api = Api(app)
+    api.representations['application/xml'] = output_xml
+    api.representations['text/xml'] = output_xml
+
+You can configure the XML output using the ``RESTFUL_XML`` setting in your
+application configuration. This setting is a dictionary with the following keys:
+
+- ``root``: The root element name (default: "response")
+- ``indent``: The number of spaces to use for indentation (default: 2)
+- ``encoding``: The encoding to use for the XML output (default: "utf-8")
+- ``namespace``: The XML namespace URL (optional)
+- ``ns_prefix``: The XML namespace prefix (optional)
+
+Example configuration:
+
+    class MyConfig(object):
+        RESTFUL_XML = {
+            'root': 'data',
+            'indent': 4,
+            'encoding': 'utf-8',
+            'namespace': 'http://example.com/api',
+            'ns_prefix': 'api'
+        }
+
+With this configuration, the XML output will look like:
+
+    <?xml version="1.0" encoding="utf-8"?>
+    <api:data xmlns:api="http://example.com/api">
+        <api:key>value</api:key>
+    </api:data>
+
 .. Note ::
 
     If the application is running in debug mode (``app.debug = True``) and
     either ``sort_keys`` or ``indent`` are not declared in the ``RESTFUL_JSON``
     configuration setting, Flask-RESTful will provide defaults of ``True`` and
     ``4`` respectively.
+
 
 Custom Fields & Inputs
 ----------------------

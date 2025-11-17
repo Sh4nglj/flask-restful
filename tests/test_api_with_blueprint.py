@@ -2,14 +2,22 @@ import unittest
 from flask import Flask, Blueprint, request
 try:
     from mock import Mock
-except:
+except:  # pragma: no cover
     # python3
     from unittest.mock import Mock
 import flask
 import flask_restful
 import flask_restful.fields
-#noinspection PyUnresolvedReferences
-from nose.tools import assert_true, assert_false  # you need it for tests in form of continuations
+
+try:
+    # nose is unmaintained and may be incompatible with modern Python versions
+    from nose.tools import assert_true, assert_false  # pragma: no cover
+except ImportError:  # pragma: no cover
+    def assert_true(expr):
+        assert expr
+
+    def assert_false(expr):
+        assert not expr
 
 
 # Add a dummy Resource to verify that the app is properly set.

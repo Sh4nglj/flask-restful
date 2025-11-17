@@ -10,6 +10,7 @@ from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound, NotAc
 from werkzeug.wrappers import Response as ResponseBase
 from flask_restful.utils import http_status_message, unpack, OrderedDict
 from flask_restful.representations.json import output_json
+from flask_restful.representations.xml import output_xml
 import sys
 from types import MethodType
 import operator
@@ -61,7 +62,7 @@ def _handle_flask_propagate_exceptions_config(app, e):
             raise e
 
 
-DEFAULT_REPRESENTATIONS = [('application/json', output_json)]
+DEFAULT_REPRESENTATIONS = [('application/json', output_json), ('application/xml', output_xml), ('text/xml', output_xml)]
 
 
 class Api(object):
