@@ -11,6 +11,7 @@ from werkzeug.wrappers import Response as ResponseBase
 from flask_restful.utils import http_status_message, unpack, OrderedDict
 from flask_restful.representations.json import output_json
 import sys
+import time
 from types import MethodType
 import operator
 try:
@@ -117,6 +118,11 @@ class Api(object):
         self.resources = []
         self.app = None
         self.blueprint = None
+        # Retry configuration
+        self.retry_enabled = False
+        self.retry_max_attempts = 3
+        self.retry_delay = 0.5
+        self.retry_exceptions = ()
 
         if app is not None:
             self.app = app
@@ -235,8 +241,10 @@ class Api(object):
         """
 
         if self.blueprint:
-            if endpoint.startswith(self.blueprint.name):
-                endpoint = endpoint.split(self.blueprint.name + '.', 1)[-1]
+            # Check if endpoint starts with blueprint name followed by a dot
+            blueprint_prefix = self.blueprint.name + '.'
+            if endpoint.startswith(blueprint_prefix):
+                endpoint = endpoint[len(blueprint_prefix):]
             else:
                 return False
         return endpoint in self.endpoints
@@ -291,6 +299,22 @@ class Api(object):
 
         """
         if self._has_fr_route():
+            # Check if retry is enabled and this is a retryable exception
+            if self.retry_enabled and isinstance(e, self.retry_exceptions):
+                attempt = 1
+                while attempt <= self.retry_max_attempts:
+                    try:
+                        # Re-attempt the request by calling the original handler again
+                        return original_handler(e)
+                    except Exception as retry_e:
+                        if not isinstance(retry_e, self.retry_exceptions):
+                            # Not a retryable exception, re-raise
+                            raise
+                        attempt += 1
+                        if attempt > self.retry_max_attempts:
+                            # Max attempts reached, proceed with error handling
+                            break
+                        time.sleep(self.retry_delay)
             try:
                 return self.handle_error(e)
             except Exception:
@@ -340,10 +364,8 @@ class Api(object):
         data = getattr(e, 'data', default_data)
 
         if code and code >= 500:
-            exc_info = sys.exc_info()
-            if exc_info[1] is None:
-                exc_info = None
-            current_app.log_exception(exc_info)
+            # Log the exception with full traceback
+            current_app.log_exception(sys.exc_info())
 
         error_cls_name = type(e).__name__
         if error_cls_name in self.errors:

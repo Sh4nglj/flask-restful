@@ -1,7 +1,7 @@
 import unittest
 import json
 from flask import Flask, Blueprint, redirect, views, abort as flask_abort
-from flask.signals import got_request_exception, signals_available
+from flask.signals import got_request_exception
 try:
     from mock import Mock
 except:
@@ -49,6 +49,19 @@ def test_unpack():
 class HelloWorld(flask_restful.Resource):
     def get(self):
         return {}
+
+# Add a test case to verify HelloWorld resource returns correct response
+class TestHelloWorldResponse(unittest.TestCase):
+    def test_hello_world_get(self):
+        app = Flask(__name__)
+        api = flask_restful.Api(app)
+        api.add_resource(HelloWorld, '/')
+        
+        with app.test_client() as client:
+            resp = client.get('/')
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(resp.data.decode().strip(), '{}')
 
 
 class BadMojoError(HTTPException):
