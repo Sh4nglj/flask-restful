@@ -69,13 +69,19 @@ class Argument(object):
         be stored if the argument is missing from the request.
     :param bool trim: If enabled, trims whitespace around the argument.
     :param bool nullable: If enabled, allows null value in argument.
+    :param int min_length: The minimum length allowed for string arguments.
+    :param int max_length: The maximum length allowed for string arguments.
+    :param min_value: The minimum value allowed for numeric arguments.
+    :param max_value: The maximum value allowed for numeric arguments.
+    :param str regex: A regular expression pattern to validate string arguments against.
     """
 
     def __init__(self, name, default=None, dest=None, required=False,
                  ignore=False, type=text_type, location=('json', 'values',),
                  choices=(), action='store', help=None, operators=('=',),
                  case_sensitive=True, store_missing=True, trim=False,
-                 nullable=True):
+                 nullable=True, min_length=None, max_length=None,
+                 min_value=None, max_value=None, regex=None):
         self.name = name
         self.default = default
         self.dest = dest
@@ -91,6 +97,11 @@ class Argument(object):
         self.store_missing = store_missing
         self.trim = trim
         self.nullable = nullable
+        self.min_length = min_length
+        self.max_length = max_length
+        self.min_value = min_value
+        self.max_value = max_value
+        self.regex = regex
 
     def __str__(self):
         if len(self.choices) > 5:
@@ -104,10 +115,12 @@ class Argument(object):
     def __repr__(self):
         return "{0}('{1}', default={2}, dest={3}, required={4}, ignore={5}, location={6}, " \
                "type=\"{7}\", choices={8}, action='{9}', help={10}, case_sensitive={11}, " \
-               "operators={12}, store_missing={13}, trim={14}, nullable={15})".format(
+               "operators={12}, store_missing={13}, trim={14}, nullable={15}, min_length={16}, " \
+               "max_length={17}, min_value={18}, max_value={19}, regex={20})" .format(
                 self.__class__.__name__, self.name, self.default, self.dest, self.required, self.ignore, self.location,
                 self.type, self.choices, self.action, self.help, self.case_sensitive,
-                self.operators, self.store_missing, self.trim, self.nullable)
+                self.operators, self.store_missing, self.trim, self.nullable, self.min_length,
+                self.max_length, self.min_value, self.max_value, self.regex)
 
     def source(self, request):
         """Pulls values off the request in the provided location
@@ -225,6 +238,54 @@ class Argument(object):
                         self.handle_validation_error(
                                 ValueError(u"{0} is not a valid choice".format(
                                     value)), bundle_errors)
+
+                    # Check min_length and max_length for string values
+                    if isinstance(value, six.string_types):
+                        if self.min_length is not None and len(value) < self.min_length:
+                            if current_app.config.get("BUNDLE_ERRORS", False) or bundle_errors:
+                                return self.handle_validation_error(
+                                    ValueError(u"{0} is too short. Must be at least {1} characters long".format(
+                                        value, self.min_length)), bundle_errors)
+                            self.handle_validation_error(
+                                    ValueError(u"{0} is too short. Must be at least {1} characters long".format(
+                                        value, self.min_length)), bundle_errors)
+                        if self.max_length is not None and len(value) > self.max_length:
+                            if current_app.config.get("BUNDLE_ERRORS", False) or bundle_errors:
+                                return self.handle_validation_error(
+                                    ValueError(u"{0} is too long. Must be at most {1} characters long".format(
+                                        value, self.max_length)), bundle_errors)
+                            self.handle_validation_error(
+                                    ValueError(u"{0} is too long. Must be at most {1} characters long".format(
+                                        value, self.max_length)), bundle_errors)
+
+                    # Check min_value and max_value for numeric values
+                    if isinstance(value, (int, float, decimal.Decimal)):
+                        if self.min_value is not None and value < self.min_value:
+                            if current_app.config.get("BUNDLE_ERRORS", False) or bundle_errors:
+                                return self.handle_validation_error(
+                                    ValueError(u"{0} is too small. Must be at least {1}".format(
+                                        value, self.min_value)), bundle_errors)
+                            self.handle_validation_error(
+                                    ValueError(u"{0} is too small. Must be at least {1}".format(
+                                        value, self.min_value)), bundle_errors)
+                        if self.max_value is not None and value > self.max_value:
+                            if current_app.config.get("BUNDLE_ERRORS", False) or bundle_errors:
+                                return self.handle_validation_error(
+                                    ValueError(u"{0} is too large. Must be at most {1}".format(
+                                        value, self.max_value)), bundle_errors)
+                            self.handle_validation_error(
+                                    ValueError(u"{0} is too large. Must be at most {1}".format(
+                                        value, self.max_value)), bundle_errors)
+
+                    # Check regex for string values
+                    if isinstance(value, six.string_types) and self.regex is not None:
+                        import re
+                        if not re.match(self.regex, value):
+                            if current_app.config.get("BUNDLE_ERRORS", False) or bundle_errors:
+                                return self.handle_validation_error(
+                                    ValueError(u"{0} does not match the required format".format(value)), bundle_errors)
+                            self.handle_validation_error(
+                                    ValueError(u"{0} does not match the required format".format(value)), bundle_errors)
 
                     if name in request.unparsed_arguments:
                         request.unparsed_arguments.pop(name)
