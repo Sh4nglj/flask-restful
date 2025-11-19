@@ -10,6 +10,8 @@ from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound, NotAc
 from werkzeug.wrappers import Response as ResponseBase
 from flask_restful.utils import http_status_message, unpack, OrderedDict
 from flask_restful.representations.json import output_json
+from flask_restful.pagination import Pagination, paginate
+from flask_restful.filtering import Filtering, filterable
 import sys
 from types import MethodType
 import operator
@@ -20,7 +22,7 @@ except ImportError:
 
 _PROPAGATE_EXCEPTIONS = 'PROPAGATE_EXCEPTIONS'
 
-__all__ = ('Api', 'Resource', 'marshal', 'marshal_with', 'marshal_with_field', 'abort')
+__all__ = ('Api', 'Resource', 'marshal', 'marshal_with', 'marshal_with_field', 'abort', 'Pagination', 'Filtering', 'paginate', 'filterable')
 
 
 def abort(http_status_code, **kwargs):
