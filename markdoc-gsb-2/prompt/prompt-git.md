@@ -23,7 +23,7 @@ git push origin <分支名>
 
 ## 创建 Pull Request
 
-评估完成并推送分支后，创建 Pull Request：
+评估完成并推送分支后，创建 Pull Request，**base分支为自己仓库的master，非fork的原始仓库**：
 
 ### 1. 确保 GitHub CLI 已登录
 ```bash
