@@ -10,6 +10,7 @@ from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound, NotAc
 from werkzeug.wrappers import Response as ResponseBase
 from flask_restful.utils import http_status_message, unpack, OrderedDict
 from flask_restful.representations.json import output_json
+from flask_restful.rate_limiter import rate_limit, init_rate_limiter, ip_key, user_id_key, api_endpoint_key, user_role_key, combined_key
 import sys
 from types import MethodType
 import operator
@@ -20,7 +21,7 @@ except ImportError:
 
 _PROPAGATE_EXCEPTIONS = 'PROPAGATE_EXCEPTIONS'
 
-__all__ = ('Api', 'Resource', 'marshal', 'marshal_with', 'marshal_with_field', 'abort')
+__all__ = ('Api', 'Resource', 'marshal', 'marshal_with', 'marshal_with_field', 'abort', 'rate_limit', 'init_rate_limiter', 'ip_key', 'user_id_key', 'api_endpoint_key', 'user_role_key', 'combined_key')
 
 
 def abort(http_status_code, **kwargs):
@@ -219,12 +220,25 @@ class Api(object):
         :param app: The flask application object
         :type app: flask.Flask
         """
+        app.config.setdefault('RESTFUL_JSON', {})
+        if not hasattr(app, 'extensions'):
+            app.extensions = {}
+        app.extensions['restful_api'] = self
+        self.app = app
+        
         app.handle_exception = partial(self.error_router, app.handle_exception)
         app.handle_user_exception = partial(self.error_router, app.handle_user_exception)
 
         if len(self.resources) > 0:
             for resource, urls, kwargs in self.resources:
                 self._register_view(app, resource, *urls, **kwargs)
+                
+        # Initialize rate limiter with default settings
+        try:
+            import redis
+            init_rate_limiter(app)
+        except ImportError:
+            pass
 
     def owns_endpoint(self, endpoint):
         """Tests if an endpoint name (not path) belongs to this Api.  Takes
