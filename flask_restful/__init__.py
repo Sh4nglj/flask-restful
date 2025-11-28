@@ -89,20 +89,27 @@ class Api(object):
         clients on receiving 401. This usually leads to a username/password
         popup in web browsers.
     :param url_part_order: A string that controls the order that the pieces
-        of the url are concatenated when the full url is constructed.  'b'
+        of the url are concatenated when the full url is constructed.  'b' 
         is the blueprint (or blueprint registration) prefix, 'a' is the api
         prefix, and 'e' is the path component the endpoint is added with
     :type catch_all_404s: bool
     :param errors: A dictionary to define a custom response for each
         exception or error raised during a request
     :type errors: dict
+    :param default_version: The default API version to use when no version is specified
+    :type default_version: str
+    :param version_header: The name of the header to use for versioning
+    :type version_header: str
+    :param version_query_param: The name of the query parameter to use for versioning
+    :type version_query_param: str
 
     """
 
     def __init__(self, app=None, prefix='',
                  default_mediatype='application/json', decorators=None,
                  catch_all_404s=False, serve_challenge_on_401=False,
-                 url_part_order='bae', errors=None):
+                 url_part_order='bae', errors=None, default_version=None,
+                 version_header='Accept', version_query_param='version'):
         self.representations = OrderedDict(DEFAULT_REPRESENTATIONS)
         self.urls = {}
         self.prefix = prefix
@@ -117,6 +124,15 @@ class Api(object):
         self.resources = []
         self.app = None
         self.blueprint = None
+        
+        # Version control attributes
+        self.default_version = default_version
+        self.version_header = version_header
+        self.version_query_param = version_query_param
+        self.versioned_resources = {}  # {version: {endpoint: resource}}
+        self.version_inheritance = {}  # {version: parent_version}
+        self.deprecated_versions = {}  # {version: (deprecation_date, sunset_date)}
+        self.conversion_rules = {}  # {from_version: {to_version: (request_converter, response_converter)}}
 
         if app is not None:
             self.app = app
@@ -399,6 +415,9 @@ class Api(object):
             of the resource.
         :type resource_class_kwargs: dict
 
+        :param version: The API version this resource belongs to
+        :type version: str
+
         Additional keyword arguments not specified above will be passed as-is
         to :meth:`flask.Flask.add_url_rule`.
 
@@ -406,13 +425,202 @@ class Api(object):
 
             api.add_resource(HelloWorld, '/', '/hello')
             api.add_resource(Foo, '/foo', endpoint="foo")
-            api.add_resource(FooSpecial, '/special/foo', endpoint="foo")
+            api.add_resource(FooSpecial, '/special/foo', endpoint="foo", version='v1')
 
         """
-        if self.app is not None:
-            self._register_view(self.app, resource, *urls, **kwargs)
+        version = kwargs.pop('version', None)
+        if version:
+            self.add_versioned_resource(resource, version, *urls, **kwargs)
         else:
-            self.resources.append((resource, urls, kwargs))
+            if self.app is not None:
+                self._register_view(self.app, resource, *urls, **kwargs)
+            else:
+                self.resources.append((resource, urls, kwargs))
+
+    def add_versioned_resource(self, resource, version, *urls, **kwargs):
+        """Adds a versioned resource to the api.
+
+        :param resource: the class name of your resource
+        :type resource: :class:`Type[Resource]`
+
+        :param version: The API version this resource belongs to
+        :type version: str
+
+        :param urls: one or more url routes to match for the resource, standard
+                     flask routing rules apply.  Any url variables will be
+                     passed to the resource method as args.
+        :type urls: str
+
+        :param endpoint: endpoint name (defaults to :meth:`Resource.__name__.lower`
+            Can be used to reference this route in :class:`fields.Url` fields
+        :type endpoint: str
+
+        :param resource_class_args: args to be forwarded to the constructor of
+            the resource.
+        :type resource_class_args: tuple
+
+        :param resource_class_kwargs: kwargs to be forwarded to the constructor
+            of the resource.
+        :type resource_class_kwargs: dict
+
+        Additional keyword arguments not specified above will be passed as-is
+        to :meth:`flask.Flask.add_url_rule`.
+
+        Examples::
+
+            api.add_versioned_resource(HelloWorld, 'v1', '/', '/hello')
+            api.add_versioned_resource(Foo, 'v2', '/foo', endpoint="foo")
+
+        """
+        # Create versioned urls
+        versioned_urls = []
+        for url in urls:
+            # Add version prefix to the url
+            versioned_urls.append('/{}{}'.format(version, url))
+            # Also add the original url for backward compatibility if it's the default version
+            if version == self.default_version:
+                versioned_urls.append(url)
+        
+        # Register the resource with versioned urls
+        endpoint = kwargs.pop('endpoint', None) or resource.__name__.lower()
+        
+        # Store versioned resource mapping
+        if version not in self.versioned_resources:
+            self.versioned_resources[version] = {}
+        self.versioned_resources[version][endpoint] = resource
+        
+        # Register the view
+        if self.app is not None:
+            self._register_view(self.app, resource, *versioned_urls, **kwargs)
+        else:
+            self.resources.append((resource, versioned_urls, kwargs))
+
+    def get_request_version(self):
+        """Extracts the API version from the request.
+        
+        Supports three versioning methods:
+        1. URL path (e.g., /v1/users)
+        2. Request header (e.g., Accept: application/vnd.api+json; version=1)
+        3. Query parameter (e.g., ?version=1)
+        
+        :return: The API version string or None if not found
+        :rtype: str
+        """
+        version = None
+        
+        # 1. Check URL path for version prefix
+        path = request.path
+        if path.startswith('/'):
+            path = path[1:]
+        if path:
+            first_segment = path.split('/')[0]
+            # Check if first segment is a version (e.g., v1, v2, 1.0)
+            if first_segment.lower().startswith('v') and first_segment[1:].isdigit():
+                version = first_segment
+            elif first_segment.replace('.', '').isdigit():
+                version = first_segment
+        
+        # 2. Check query parameter
+        if not version:
+            version = request.args.get(self.version_query_param)
+        
+        # 3. Check request header
+        if not version and self.version_header:
+            header_value = request.headers.get(self.version_header)
+            if header_value:
+                # Parse version from header (e.g., "application/vnd.api+json; version=1")
+                if 'version=' in header_value:
+                    version_part = header_value.split('version=')[-1]
+                    # Get the first part before any other parameters
+                    version = version_part.split(';')[0].strip()
+        
+        # Fallback to default version
+        if not version:
+            version = self.default_version
+        
+        return version
+
+    def set_version_inheritance(self, version, parent_version):
+        """Sets up version inheritance.
+        
+        :param version: The child version that inherits from the parent
+        :type version: str
+        
+        :param parent_version: The parent version to inherit from
+        :type parent_version: str
+        """
+        self.version_inheritance[version] = parent_version
+
+    def deprecate_version(self, version, deprecation_date=None, sunset_date=None):
+        """Marks a version as deprecated.
+        
+        :param version: The version to deprecate
+        :type version: str
+        
+        :param deprecation_date: The date when the version was deprecated (ISO format)
+        :type deprecation_date: str
+        
+        :param sunset_date: The date when the version will be removed (ISO format)
+        :type sunset_date: str
+        """
+        self.deprecated_versions[version] = (deprecation_date, sunset_date)
+
+    def add_conversion_rule(self, from_version, to_version, request_converter=None, response_converter=None):
+        """Adds a conversion rule between two versions.
+        
+        :param from_version: The source version
+        :type from_version: str
+        
+        :param to_version: The target version
+        :type to_version: str
+        
+        :param request_converter: A function to convert request data from source to target version
+        :type request_converter: callable
+        
+        :param response_converter: A function to convert response data from target to source version
+        :type response_converter: callable
+        """
+        if from_version not in self.conversion_rules:
+            self.conversion_rules[from_version] = {}
+        self.conversion_rules[from_version][to_version] = (request_converter, response_converter)
+
+    def get_conversion_rule(self, from_version, to_version):
+        """Gets the conversion rule between two versions.
+        
+        :param from_version: The source version
+        :type from_version: str
+        
+        :param to_version: The target version
+        :type to_version: str
+        
+        :return: A tuple of (request_converter, response_converter) or (None, None) if no rule exists
+        :rtype: tuple
+        """
+        if from_version in self.conversion_rules and to_version in self.conversion_rules[from_version]:
+            return self.conversion_rules[from_version][to_version]
+        return (None, None)
+
+    def is_version_deprecated(self, version):
+        """Checks if a version is deprecated.
+        
+        :param version: The version to check
+        :type version: str
+        
+        :return: True if deprecated, False otherwise
+        :rtype: bool
+        """
+        return version in self.deprecated_versions
+
+    def get_deprecation_info(self, version):
+        """Gets deprecation information for a version.
+        
+        :param version: The version to check
+        :type version: str
+        
+        :return: A tuple of (deprecation_date, sunset_date) or (None, None) if not deprecated
+        :rtype: tuple
+        """
+        return self.deprecated_versions.get(version, (None, None))
 
     def resource(self, *urls, **kwargs):
         """Wraps a :class:`~flask_restful.Resource` class, adding it to the
@@ -450,8 +658,30 @@ class Api(object):
 
         resource.mediatypes = self.mediatypes_method()  # Hacky
         resource.endpoint = endpoint
-        resource_func = self.output(resource.as_view(endpoint, *resource_class_args,
-            **resource_class_kwargs))
+        
+        # Create a custom view function that handles versioning
+        def versioned_view(*args, **kwargs):
+            # Get requested version
+            requested_version = self.get_request_version()
+            
+            # Try to get the appropriate resource class for the requested version
+            target_resource_class = None
+            if requested_version in self.versioned_resources:
+                if endpoint in self.versioned_resources[requested_version]:
+                    target_resource_class = self.versioned_resources[requested_version][endpoint]
+            
+            # If no target resource class found, use the original
+            if not target_resource_class:
+                target_resource_class = resource
+            
+            # Create an instance of the target resource class
+            resource_instance = target_resource_class(*resource_class_args, **resource_class_kwargs)
+            
+            # Call the dispatch_request method
+            return resource_instance.dispatch_request(*args, **kwargs)
+        
+        # Wrap the custom view function with the output method
+        resource_func = self.output(versioned_view)
 
         for decorator in self.decorators:
             resource_func = decorator(resource_func)
@@ -486,11 +716,58 @@ class Api(object):
         """
         @wraps(resource)
         def wrapper(*args, **kwargs):
+            # Get requested version
+            requested_version = self.get_request_version()
+            
+            # Apply request conversion if needed
+            latest_version = sorted(self.versioned_resources.keys(), reverse=True)[0] if self.versioned_resources else None
+            if requested_version and latest_version and requested_version != latest_version:
+                request_converter, response_converter = self.get_conversion_rule(requested_version, latest_version)
+                if request_converter:
+                    # Convert request data to latest version
+                    request.data = request_converter(request.data)
+            
             resp = resource(*args, **kwargs)
+            
             if isinstance(resp, ResponseBase):  # There may be a better way to test
+                # Check if version is deprecated and add warning headers
+                if requested_version and self.is_version_deprecated(requested_version):
+                    deprecation_date, sunset_date = self.get_deprecation_info(requested_version)
+                    # Add deprecation headers
+                    if deprecation_date:
+                        resp.headers['Deprecation'] = deprecation_date
+                    if sunset_date:
+                        resp.headers['Sunset'] = sunset_date
+                    resp.headers['Link'] = '<{0}>; rel="deprecation"; type="text/html"'.format(
+                        self.app.config.get('DEPRECATION_NOTICE_URL', 'https://example.com/deprecation')
+                    )
                 return resp
+            
             data, code, headers = unpack(resp)
-            return self.make_response(data, code, headers=headers)
+            
+            # Apply response conversion if needed
+            if requested_version and latest_version and requested_version != latest_version:
+                request_converter, response_converter = self.get_conversion_rule(requested_version, latest_version)
+                if response_converter:
+                    # Convert response data back to requested version
+                    data = response_converter(data)
+            
+            # Create response object
+            response = self.make_response(data, code, headers=headers)
+            
+            # Check if version is deprecated and add warning headers
+            if requested_version and self.is_version_deprecated(requested_version):
+                deprecation_date, sunset_date = self.get_deprecation_info(requested_version)
+                # Add deprecation headers
+                if deprecation_date:
+                    response.headers['Deprecation'] = deprecation_date
+                if sunset_date:
+                    response.headers['Sunset'] = sunset_date
+                response.headers['Link'] = '<{0}>; rel="deprecation"; type="text/html"'.format(
+                    self.app.config.get('DEPRECATION_NOTICE_URL', 'https://example.com/deprecation')
+                )
+            
+            return response
         return wrapper
 
     def url_for(self, resource, **values):
